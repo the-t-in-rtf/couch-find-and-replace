@@ -20,7 +20,7 @@ var argv = require('yargs')
     .argv;
 
 var field          = argv.field;
-var find_regexp    = argv.find ? new RegExp(argv.find) : "^.*$";
+var find_regexp    = argv.find ? new RegExp(argv.find, "gi") : "^.*$";
 var replace_regexp = argv.replace !== undefined ? argv.replace : "^$";
 
 // We use when.js to throttle our async requests
@@ -83,34 +83,29 @@ function filterData(dataString) {
 
 
 function updateRecords(dataString) {
+    var defer = when.defer();
+    var updatedDocs = [];
+
+    var data = JSON.parse(dataString);
+    var records = data.rows;
+    records.forEach(function(record) {
+        var newRecord = JSON.parse(JSON.stringify(record));
+        if (!record[field]) {
+            newRecord[field] = argv.replace;
+        }
+        else {
+            newRecord[field] = record[field].replace(find_regexp, replace_regexp);
+        }
+
+        // If we have an "updated" field and the user is not explicitly setting it to something else, set it to the current date...
+        if (newRecord["updated"] && field !== "updated") {
+            newRecord["updated"] = (new Date()).toISOString();
+        }
+
+        updatedDocs.push(newRecord);
+    });
+
     if (!preview) {
-        var defer = when.defer();
-        var updatedDocs = [];
-
-        var data = JSON.parse(dataString);
-        var records = data.rows;
-        records.forEach(function(record) {
-            var newRecord = JSON.parse(JSON.stringify(record));
-            if (argv.replace) {
-                if (!record[field]) {
-                    newRecord[field] = argv.replace;
-                }
-                else {
-                    newRecord[field] = record[field].replace(find_regexp,replace_regexp);
-                }
-            }
-            else {
-                delete newRecord[field];
-            }
-
-            // If we have an "updated" field, set it to the current date...
-            if (newRecord["updated"]) {
-                newRecord["updated"] = (new Date()).toISOString();
-            }
-
-            updatedDocs.push(newRecord);
-        });
-
         var updateOptions = {
             url:  argv.url + "/_bulk_docs",
             json: true,
@@ -145,9 +140,8 @@ function updateRecords(dataString) {
         });
     }
     else {
-        // Pass through the original data unaltered
         console.log("Running in preview mode, no changes will be saved...");
-        return when(dataString);
+        return when(JSON.stringify({ rows: updatedDocs }));
     }
 }
 
@@ -159,6 +153,7 @@ function saveMatchesToFile(dataString) {
         var timestamp = (new Date()).getTime();
 
         var filename = "/tmp/" + "couch-find-and-replace-" + timestamp;
+        debugger;
         fs.writeFile(filename, JSON.stringify(JSON.parse(dataString),null,2), function(err) {
             if (err) {
                 defer.reject(err);
@@ -196,4 +191,4 @@ function displayStats(dataString) {
     return when(dataString);
 }
 
-getData().then(filterData).then(displayStats).then(saveMatchesToFile).then(updateRecords);
+getData().then(filterData).then(displayStats).then(updateRecords).then(saveMatchesToFile);
