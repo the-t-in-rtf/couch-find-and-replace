@@ -5,6 +5,7 @@ This script performs a bulk find and replace with a preview mode.
 You must have already imported all data (see the "import" directory for details) and set up the views used by the search (see the "couchapp" directory for details).
 
  */
+// TODO:  Deletes seem to take place in batches of around 50% and require multiple runs.  Investigate.
 "use strict";
 
 var argv = require('yargs')
@@ -15,6 +16,7 @@ var argv = require('yargs')
     .describe('limit.field','Limit the find by one or more additional FIELD values.  For example, "limit.status=active".')
     .describe('find','The regular expression to look for.  If this is not specified, we will look for records where the value is undefined.')
     .describe('replace','The pattern to replace matches with.  If this is not specified, matching records will have their value for FIELD cleared.')
+    .describe('delete','Delete matching records instead of replacing the matching value.')
     .describe('commit','By default, no changes will be made.  You must pass this argument to write changes.')
     .describe('save','If you pass this argument, the list of records will be saved a file in /tmp.')
     .argv;
@@ -34,7 +36,11 @@ function getData() {
     var defer = when.defer();
 
     var searchUrl = argv.url + "/_all_docs?include_docs=true";
-    request.get(searchUrl, function(e,r,b) {
+    request.get(searchUrl, function (e, r,b ) {
+	if (e) {
+	    console.error(e);
+	    return;
+	}
         if (r.body) {
             var data = JSON.parse(r.body);
             var docs = data.rows;
@@ -90,17 +96,24 @@ function updateRecords(dataString) {
     var records = data.rows;
     records.forEach(function(record) {
         var newRecord = JSON.parse(JSON.stringify(record));
-        if (!record[field]) {
-            newRecord[field] = argv.replace;
-        }
-        else {
-            newRecord[field] = record[field].replace(find_regexp, replace_regexp);
-        }
-
-        // If we have an "updated" field and the user is not explicitly setting it to something else, set it to the current date...
-        if (newRecord["updated"] && field !== "updated") {
-            newRecord["updated"] = (new Date()).toISOString();
-        }
+	if (argv.delete) {
+	    newRecord._deleted = true;
+	}
+	else {
+            if (!record[field]) {
+		newRecord[field] = argv.replace;
+            }
+            else {
+		var currentValue = typeof record[field] === "string" ? record[field] : JSON.stringify(record[field]);
+		// TODO:  Make both sides of the equation a lot smarter about arrays and objects
+		newRecord[field] = currentValue.replace(find_regexp, replace_regexp);
+            }
+	    
+            // If we have an "updated" field and the user is not explicitly setting it to something else, set it to the current date...
+            if (newRecord["updated"] && field !== "updated") {
+		newRecord["updated"] = (new Date()).toISOString();
+            }
+	}
 
         updatedDocs.push(newRecord);
     });
