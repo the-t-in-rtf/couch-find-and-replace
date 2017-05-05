@@ -100,10 +100,13 @@ function updateRecords(dataString) {
 	    newRecord._deleted = true;
 	}
 	else {
-            if (!record[field]) {
+            if (!record[field] && argv.replace) {
 		newRecord[field] = argv.replace;
             }
-            else {
+            else if (record[field] && !argv.replace){
+		delete newRecord[field];
+	    }
+	    else {
 		var currentValue = typeof record[field] === "string" ? record[field] : JSON.stringify(record[field]);
 		// TODO:  Make both sides of the equation a lot smarter about arrays and objects
 		newRecord[field] = currentValue.replace(find_regexp, replace_regexp);
